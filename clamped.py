@@ -5,11 +5,12 @@ from scipy.io import savemat
 from scipy.sparse import lil_matrix
 from scipy.sparse.linalg import spsolve
 import numpy as np
+import math
 #ode integrator
 from scipy.integrate import odeint
 import time
 
-from multilink import Multilink
+from clamped_multilink import Multilink
 
 class Clamped(Multilink):
     """
@@ -313,6 +314,30 @@ class Clamped(Multilink):
         theta = concatenate((theta1vec, theta), axis=1)
         return x, y, theta
 
+    def spName(self):
+        """
+        Creates sp file name
+        :return: fname: str
+        """
+        sp = self.sp
+
+        if sp >= 1 and sp == int(sp):
+            fname = '{:d}_00'.format(int(sp))
+            return fname
+        elif sp >= 1 and sp != int(sp):
+            fname = '{:d}_'.format(int(sp))
+            sp = math.ceil((sp - int(sp)) * 10000)
+            fname = fname + '{:d}'.format(sp)
+            fname = fname[:-2]
+            return fname
+        elif sp < 1:
+            fname = '0_'
+            sp = math.ceil(sp * 10000)
+            fname = fname + '{:d}'.format(sp)
+            fname = fname[:-2]
+            return fname
+        return
+
     def run(self, tvals, saving=True):
         """
         Runs simulation over timesteps tvals
@@ -344,6 +369,7 @@ class Clamped(Multilink):
         # time the program
         realtime0 = time.time()
 
+        BC = 'clamped'
         N = self.N
 
         # Initial conditions for x, y, and theta
@@ -371,6 +397,7 @@ class Clamped(Multilink):
             dict = {}
             # convert to float for possible use in matlab,
             # otherwise 1/N=0  if N>1 in matlab if N is int.
+            dict['BC'] = BC
             dict['N'] = float(N)
             dict['msg'] = info['message']
             dict['t'] = tvals
@@ -386,7 +413,7 @@ class Clamped(Multilink):
             dict['thetadot'] = self.thetadot
             dict['Fx'] = Fx
             dict['dt'] = self.dt
-            fname = 'sp{:.2f}N{:d}dt{dt}.mat'.format(self.sp, N, dt='%.E' % dt)
+            fname = BC + '-sp' + self.spName() + 'N{:d}dt{dt}.mat'.format(N, dt='%.E' % dt)
             dict['fname'] = fname
             savemat(fname, dict)
         realtime1 = time.time()
