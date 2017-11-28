@@ -1,5 +1,5 @@
 from numpy import sin, cos, linspace, ones, zeros, arange, exp, sum
-from numpy import append, diff
+from numpy import append, diff, pi
 from numpy import concatenate
 from scipy.io import savemat
 from scipy.sparse import lil_matrix
@@ -413,8 +413,9 @@ class Clamped(Multilink):
             dict['thetadot'] = self.thetadot
             dict['Fx'] = Fx
             dict['dt'] = self.dt
-            fname = BC + '-sp' + self.spName() + 'N{:d}dt{dt}.mat'.format(N, dt='%.E' % dt)
+            fname = BC + '-sp' + self.spName() + 'N{:d}dt{dt}'.format(N, dt='%.E' % dt)
             dict['fname'] = fname
+            fname = fname + '.mat'
             savemat(fname, dict)
         realtime1 = time.time()
         elapsedtime = realtime1 - realtime0
@@ -423,16 +424,14 @@ class Clamped(Multilink):
         return sol, info
 
 if __name__ == "__main__":
-    epsilon = 0.5
+    epsilon = 1
     f_ydot1 = lambda t: -epsilon * sin(t)
     f_y1 = lambda t: epsilon * cos(t)
     stiffness_type = 'linear'
     stiffness_params = [-1,1]
-    sim = Clamped(Nlink=5, gamma=1.2, sp=0.5, epsilon = epsilon, f_y1 = f_y1, f_ydot1 = f_ydot1)
+    sim = Clamped(Nlink=5, gamma=1.2, sp=2, epsilon = epsilon, f_y1 = f_y1, f_ydot1 = f_ydot1)
     sim.stiffness_distribution(stiffness_type, stiffness_params)
-    exponent = 5
-    dt = 1*10**-exponent
+    dt = 10**-5
     sim.dt = dt
-    sim.exponent = exponent
-    tvals = arange(0, 5 + dt, dt)
+    tvals = arange(0, 6*pi + dt, dt)
     sim.run(tvals, saving=True)
