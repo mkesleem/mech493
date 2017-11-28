@@ -1,17 +1,16 @@
 from numpy import sin, cos, linspace, ones, zeros, arange, exp, sum
-from numpy import append, diff
+from numpy import append, diff, pi
 from numpy import concatenate
 from scipy.io import savemat
 from scipy.sparse import lil_matrix
 from scipy.sparse.linalg import spsolve
 import numpy as np
 import math
-# ode integrator
+#ode integrator
 from scipy.integrate import odeint
 import time
 
 from hinged_multilink import Multilink
-
 
 class Hinged(Multilink):
     """
@@ -39,12 +38,12 @@ class Hinged(Multilink):
         super(Hinged, self).__init__(Nlink, gamma, sp)
         self.epsilon = epsilon
 
-        # Define functions for position and velocity of first filament in y axis
+        #Define functions for position and velocity of first filament in y axis
         self.f_y1 = f_y1
         self.f_ydot1 = f_ydot1
 
-        # Define intial positions of first filament
-        self.x1 = 2 / self.N
+        #Define intial positions of first filament
+        self.x1 = 2/self.N
         self.y1 = f_y1(0)
 
     def stiffness_distribution(self, stiffness_type, stiffness_params):
@@ -59,19 +58,19 @@ class Hinged(Multilink):
         :return: None
         """
         N = self.N
-        self.spring_positions = linspace(0, 1 - 1 / N, N)
+        self.spring_positions = linspace(0,1-1/N,N)
 
         if stiffness_type == 'linear':
             a, b = stiffness_params
-            C = a * self.spring_positions + b
+            C = a*self.spring_positions+b
             self.C_distribution = C
         elif stiffness_type == 'quadratic':
-            a, b, c = stiffness_params
-            C = a * self.spring_positions ** 2 + b * self.spring_positions + c
+            a,b,c = stiffness_params
+            C = a*self.spring_positions**2 + b*self.spring_positions + c
             self.C_distribution = C
         elif stiffness_type == 'exponential':
             a = stiffness_params
-            C = exp(a * self.spring_positions)
+            C = exp(a*self.spring_positions)
             self.C_distribution = C
         else:
             raise ValueError(
@@ -79,8 +78,7 @@ class Hinged(Multilink):
 
         if min(self.C_distribution) <= 0:
             raise ValueError(
-                'spring distirbution should have positive values, while the minimum value of the stiffness distribution is: %.1f' % min(
-                    self.C_distribution)
+                'spring distirbution should have positive values, while the minimum value of the stiffness distribution is: %.1f' % min(self.C_distribution)
             )
         return
 
@@ -136,21 +134,21 @@ class Hinged(Multilink):
         eq(3N-1): ydotN - ydot_{N+1} - 1/N*thetadotN*cos(thetaN) = 0
         """
         N = self.N
-        A = lil_matrix((3 * (N), 3 * (N)))
+        A = lil_matrix((3*(N), 3*(N)))
 
         # N viscous torque equations.
-        A[0: N, 0:N], A[0: N, N:2 * N], A[0: N, 2 * N:] = self.viscous_torque_mat(x, y, theta)
+        A[0: N, 0:N], A[0: N, N:2*N], A[0: N, 2*N:] = self.viscous_torque_mat(x, y, theta)
 
         # Get kinematic constraint entries
         Cxx, Cxtheta, Cyy, Cytheta = self.kinematic_constraint_mat(theta)
 
         # N kinematic constraints in x direction
-        A[N:2 * N, 0:N] = Cxx
-        A[N:2 * N, 2 * N:] = Cxtheta
+        A[N:2*N,0:N] = Cxx
+        A[N:2*N,2*N:] = Cxtheta
 
         # N kinematic constraints in y direction
-        A[2 * N:, N:2 * N] = Cyy
-        A[2 * N:, 2 * N:] = Cytheta
+        A[2*N:,N:2*N] = Cyy
+        A[2*N:,2*N:] = Cytheta
         return A.tocsr()
 
     def rhs(self, theta, t):
@@ -200,14 +198,14 @@ class Hinged(Multilink):
         N = self.N
         spring_const = self.spring_const
 
-        f = spring_const * self.C_distribution[1:] * diff(theta)
-        f = append(self.C_distribution[0] * theta[0], f)
-        f = append(f, zeros(2 * N))
-        f[2 * N] = -self.f_ydot1(t)
-        f[0] = f[0] - self.f_ydot1(t) * (-(1 / 2) * (1 / N ** 2) * cos(theta[0]))
+        f = spring_const*self.C_distribution[1:]* diff(theta)
+        f = append(self.C_distribution[0]*theta[0], f)
+        f = append(f, zeros(2*N))
+        f[2*N] = -self.f_ydot1(t)
+        f[0] = f[0] - self.f_ydot1(t)*(-(1 / 2) * (1 / N ** 2) * cos(theta[0]))
         return f
 
-    def dydt(self, y, t):
+    def dydt(self, y,t):
         """
         Solves for xdot, ydot, and thetadot at the given time step
         yp = [xdot, ydot, thetadot]
@@ -240,24 +238,24 @@ class Hinged(Multilink):
         print('time = {}'.format(t))
         N = self.N
         xvec = y[0:N]
-        yvec = y[N:2 * N]
-        thetavec = y[2 * N:]
+        yvec = y[N:2*N]
+        thetavec = y[2*N:]
 
         # Determine y1 at current time step
         self.y1 = self.f_y1(t)
 
         # Compute A and r
-        A = self.lhs(xvec, yvec, thetavec)
+        A = self.lhs(xvec,yvec,thetavec)
         r = self.rhs(thetavec, t)
 
         # Solve system A*yp = r
-        yp = spsolve(A, r, use_umfpack=True)
+        yp = spsolve(A, r, use_umfpack = True)
 
         # Save entries of yp (xdot, ydot, and thetadot)
         # Use current dotindex
         self.xdot[self.dotindex, :] = yp[0:N]
-        self.ydot[self.dotindex, :] = yp[N:2 * N]
-        self.thetadot[self.dotindex, :] = yp[2 * N:3 * N]
+        self.ydot[self.dotindex, :] = yp[N:2*N]
+        self.thetadot[self.dotindex, :] = yp[2*N:3*N]
 
         # Step dotindex
         self.dotindex += 1
@@ -284,7 +282,7 @@ class Hinged(Multilink):
         Fx_coef_xdot, Fx_coef_y_dot, Fx_coef_theta_dot = self.viscous_force_x_coef(theta)
         Fx1 = Fx_coef_y_dot[:, 0] * self.f_ydot1(tvals) + Fx_coef_theta_dot[:, 0] * self.thetadot[:, 0]
         Fx = Fx_coef_xdot[:, 1:] * self.xdot[:, :-1] + Fx_coef_y_dot[:, 1:] * self.ydot[:, :-1] \
-             + Fx_coef_theta_dot[:, 1:] * self.thetadot[:, 1:]
+             + Fx_coef_theta_dot[:,1:] * self.thetadot[:,1:]
         return sum(Fx, axis=1) + Fx1
 
     def Xdot_init(self, tvals):
@@ -302,7 +300,7 @@ class Hinged(Multilink):
         self.dotindex = 0
         return
 
-    def xy_vector_prep(self, x, y):
+    def xy_vector_prep(self, x,y):
         """
         Adds columns x1 = 0 and y1 = f_y1
 
@@ -315,12 +313,12 @@ class Hinged(Multilink):
         :return y: numpy.ndarray
             y positions of links 1 through N+1 at each time step
         """
-        zerovec = zeros((len(tvals), 1))
-        x = concatenate((zerovec, x), axis=1)
+        zerovec = zeros((len(tvals),1))
+        x = concatenate((zerovec,x), axis = 1)
 
         y1 = self.f_y1(tvals)
         y1 = y1[np.newaxis]
-        y = concatenate((y1.T, y), axis=1)
+        y = concatenate((y1.T,y), axis = 1)
         return x, y
 
     def spName(self):
@@ -382,7 +380,7 @@ class Hinged(Multilink):
         N = self.N
 
         # Initial conditions for x, y, and theta
-        xi = linspace(2 / N, 1, N)
+        xi = linspace(2 / N, 1, N )
         yi = self.f_y1(0) * ones(N)
         thetai = zeros(N)
         y0 = append(append(xi, yi), thetai)
@@ -394,13 +392,13 @@ class Hinged(Multilink):
         print(info['message'])
 
         # extract solution from the solution array.
-        x = sol[:, 0:N]
-        y = sol[:, N:2 * N]
-        theta = sol[:, 2 * N:]
+        x = sol[:,0:N]
+        y = sol[:, N:2*N]
+        theta = sol[:,2*N:]
 
         # Calculate force in x direction and new x and y position vectors
         Fx = self.force_x(theta)
-        x, y = self.xy_vector_prep(x, y)
+        x,y = self.xy_vector_prep(x, y)
 
         # Save data
         if saving:
@@ -418,13 +416,14 @@ class Hinged(Multilink):
             dict['spring_const'] = float(self.spring_const)
             dict['sp'] = float(self.sp)
             dict['C_distribution'] = self.C_distribution
-            dict['xdot'] = self.xdot[:, :-1]
-            dict['ydot'] = self.ydot[:, :-1]
+            dict['xdot'] = self.xdot[:,:-1]
+            dict['ydot'] = self.ydot[:,:-1]
             dict['thetadot'] = self.thetadot
             dict['Fx'] = Fx
             dict['dt'] = self.dt
-            fname = BC + '-sp' + self.spName() + 'N{:d}dt{dt}.mat'.format(N, dt='%.E' % dt)
+            fname = BC+'-sp'+self.spName()+'N{:d}dt{dt}'.format(N, dt='%.E' % dt)
             dict['fname'] = fname
+            fname = fname + '.mat'
             savemat(fname, dict)
         realtime1 = time.time()
         elapsedtime = realtime1 - realtime0
@@ -432,11 +431,10 @@ class Hinged(Multilink):
         print('Simulation took {}.'.format(timefmt))
         return sol, info
 
-
 if __name__ == "__main__":
     """
     Class for the hinged case
-
+    
     Attributes
     ----------
     epsilon : float
@@ -455,20 +453,20 @@ if __name__ == "__main__":
         time range to integrate over
     sim: class
         Inputs: Nlink, gamma, sp, epsilon, f_y1, f_ydot1
-
+    
     1)  Generate sim
     2)  Create stiffnes distribution
     3)  Run sim            
     """
 
-    epsilon = 0.5
+    epsilon = 1
     f_ydot1 = lambda t: -epsilon * sin(t)
     f_y1 = lambda t: epsilon * cos(t)
     stiffness_type = 'linear'
-    stiffness_params = [-1, 1]
-    sim = Hinged(Nlink=5, gamma=1.2, sp=0.5, epsilon=epsilon, f_y1=f_y1, f_ydot1=f_ydot1)
+    stiffness_params = [-1,1]
+    sim = Hinged(Nlink=5, gamma=1.2, sp=2, epsilon = epsilon, f_y1 = f_y1, f_ydot1 = f_ydot1)
     sim.stiffness_distribution(stiffness_type, stiffness_params)
-    dt = 1e-5
+    dt = 1e-6
     sim.dt = dt
-    tvals = arange(0, 5 + dt, dt)
+    tvals = arange(0, 6*pi + dt, dt)
     sim.run(tvals, saving=True)
