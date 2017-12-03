@@ -34,17 +34,10 @@ class Hinged(Multilink):
         y position of first filament
     """
 
-    def __init__(self, Nlink, gamma, sp, epsilon, f_y1, f_ydot1):
+    def __init__(self, Nlink, gamma, sp, epsilon):
         super(Hinged, self).__init__(Nlink, gamma, sp)
         self.epsilon = epsilon
-
-        #Define functions for position and velocity of first filament in y axis
-        self.f_y1 = f_y1
-        self.f_ydot1 = f_ydot1
-
-        #Define intial positions of first filament
-        self.x1 = 2/self.N
-        self.y1 = f_y1(0)
+        self.x1 = 0
 
     def stiffness_distribution(self, stiffness_type, stiffness_params):
         """
@@ -76,10 +69,26 @@ class Hinged(Multilink):
             raise ValueError(
                 'spring distribution should be one of linear, quadratic, or exponential, while the input given is: %s' % stiffness_type)
 
-        if min(self.C_distribution) <= 0:
+        if min(self.C_distribution) < 0:
             raise ValueError(
                 'spring distirbution should have positive values, while the minimum value of the stiffness distribution is: %.1f' % min(self.C_distribution)
             )
+        return
+
+    def actuation_function(self, actuation_type):
+        self.actuation_type = actuation_type
+        epsilon = self.epsilon
+        if actuation_type == 'cos':
+            self.f_ydot1 = lambda t: -epsilon * sin(t)
+            self.f_y1 = lambda t: epsilon * cos(t)
+            self.y1 = self.f_y1(0)
+        elif actuation_type == 'sin':
+            self.f_ydot1 = lambda t: epsilon * cos(t)
+            self.f_y1 = lambda t: epsilon * sin(t)
+            self.y1 = self.f_y1(0)
+        else:
+            raise ValueError(
+                "actuation type should be 'cos' or 'sin,' while the input is: %s" % actuation_type)
         return
 
     def lhs(self, x, y, theta):
@@ -380,7 +389,7 @@ class Hinged(Multilink):
         N = self.N
 
         # Initial conditions for x, y, and theta
-        xi = linspace(2 / N, 1, N )
+        xi = linspace(1 / N, 1, N )
         yi = self.f_y1(0) * ones(N)
         thetai = zeros(N)
         y0 = append(append(xi, yi), thetai)
@@ -421,7 +430,9 @@ class Hinged(Multilink):
             dict['thetadot'] = self.thetadot
             dict['Fx'] = Fx
             dict['dt'] = self.dt
-            fname = BC+'-sp'+self.spName()+'N{:d}dt{dt}'.format(N, dt='%.E' % dt)
+            dict['actuation_type'] = self.actuation_type
+            dict['C1'] = self.C_distribution[0]
+            fname = BC + '_' + self.actuation_type + '-sp' + self.spName() + 'N{:d}dt{dt}'.format(N, dt='%.E' % dt) + 'C{:d}'.format(int(self.C_distribution[0]))
             dict['fname'] = fname
             fname = fname + '.mat'
             savemat(fname, dict)
@@ -458,15 +469,16 @@ if __name__ == "__main__":
     2)  Create stiffnes distribution
     3)  Run sim            
     """
-
     epsilon = 1
-    f_ydot1 = lambda t: -epsilon * sin(t)
-    f_y1 = lambda t: epsilon * cos(t)
+    actuation_type = 'cos'
     stiffness_type = 'linear'
     stiffness_params = [-1,1]
-    sim = Hinged(Nlink=5, gamma=1.2, sp=2, epsilon = epsilon, f_y1 = f_y1, f_ydot1 = f_ydot1)
+    C1 = 0
+    sim = Hinged(Nlink=5, gamma=1.2, sp=2, epsilon = epsilon)
     sim.stiffness_distribution(stiffness_type, stiffness_params)
-    dt = 1e-6
+    sim.C_distribution[0] = C1
+    sim.actuation_function(actuation_type)
+    dt = 1e-3
     sim.dt = dt
     tvals = arange(0, 6*pi + dt, dt)
     sim.run(tvals, saving=True)
