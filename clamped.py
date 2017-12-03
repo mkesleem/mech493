@@ -33,13 +33,10 @@ class Clamped(Multilink):
     f_y1: anonymous function
         y position of first filament
     """
-    def __init__(self, Nlink, gamma, sp, epsilon, f_y1, f_ydot1):
+    def __init__(self, Nlink, gamma, sp, epsilon):
         super(Clamped, self).__init__(Nlink, gamma, sp)
         self.epsilon = epsilon
-        self.f_y1 = f_y1
-        self.f_ydot1 = f_ydot1
         self.x2 = 2/self.N
-        self.y2 = f_y1(0)
 
     def stiffness_distribution(self, stiffness_type, stiffness_params):
         """
@@ -74,6 +71,22 @@ class Clamped(Multilink):
             raise ValueError(
                 'spring distirbution should have positive values, while the minimum value of the stiffness distribution is: %.1f' % min(self.C_distribution)
             )
+        return
+
+    def actuation_function(self, actuation_type):
+        self.actuation_type = actuation_type
+        epsilon = self.epsilon
+        if actuation_type == 'cos':
+            self.f_ydot1 = lambda t: -epsilon * sin(t)
+            self.f_y1 = lambda t: epsilon * cos(t)
+            self.y2 = self.f_y1(0)
+        elif actuation_type == 'sin':
+            self.f_ydot1 = lambda t: epsilon * cos(t)
+            self.f_y1 = lambda t: epsilon * sin(t)
+            self.y2 = self.f_y1(0)
+        else:
+            raise ValueError(
+                "actuation type should be 'cos' or 'sin,' while the input is: %s" % actuation_type)
         return
 
     def lhs(self, x, y, theta):
@@ -408,12 +421,10 @@ class Clamped(Multilink):
             dict['spring_const'] = float(self.spring_const)
             dict['sp'] = float(self.sp)
             dict['C_distribution'] = self.C_distribution
-            dict['xdot'] = self.xdot[:, :-1]
-            dict['ydot'] = self.ydot[:, :-1]
-            dict['thetadot'] = self.thetadot
             dict['Fx'] = Fx
             dict['dt'] = self.dt
-            fname = BC + '-sp' + self.spName() + 'N{:d}dt{dt}'.format(N, dt='%.E' % dt)
+            dict['actuation_type'] = self.actuation_type
+            fname = BC + '_' + self.actuation_type + '-sp' + self.spName() + 'N{:d}dt{dt}'.format(N, dt='%.E' % dt)
             dict['fname'] = fname
             fname = fname + '.mat'
             savemat(fname, dict)
@@ -425,13 +436,13 @@ class Clamped(Multilink):
 
 if __name__ == "__main__":
     epsilon = 1
-    f_ydot1 = lambda t: -epsilon * sin(t)
-    f_y1 = lambda t: epsilon * cos(t)
     stiffness_type = 'linear'
+    actuation_type = 'sin'
     stiffness_params = [-1,1]
-    sim = Clamped(Nlink=5, gamma=1.2, sp=2, epsilon = epsilon, f_y1 = f_y1, f_ydot1 = f_ydot1)
+    sim = Clamped(Nlink=5, gamma=1.2, sp=2, epsilon = epsilon)
     sim.stiffness_distribution(stiffness_type, stiffness_params)
-    dt = 10**-5
+    sim.actuation_function(actuation_type)
+    dt = 1e-3
     sim.dt = dt
     tvals = arange(0, 6*pi + dt, dt)
     sim.run(tvals, saving=True)
