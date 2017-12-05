@@ -1,6 +1,7 @@
 from numpy import sin, cos, linspace, ones, zeros, arange, exp, sum
 from numpy import append, diff, pi
 from numpy import concatenate
+from numpy import trapz
 from scipy.io import savemat
 from scipy.sparse import lil_matrix
 from scipy.sparse.linalg import spsolve
@@ -254,7 +255,7 @@ class Clamped(Multilink):
         # Use current dotindex
         self.xdot[self.dotindex, :] = yp[0:N-1]
         self.ydot[self.dotindex, :] = yp[N - 1:2*(N-1)]
-        self.thetadot[self.dotindex, :] = yp[2*(N-1):3*(N-1)]
+        self.thetadot[self.dotindex, :] = yp[2*(N-1):]
 
         # Step dotindex
         self.dotindex += 1
@@ -327,29 +328,54 @@ class Clamped(Multilink):
         theta = concatenate((theta1vec, theta), axis=1)
         return x, y, theta
 
-    def spName(self):
+    def sp_gamma_name(self,sp_or_gamma):
         """
-        Creates sp file name
+        Creates sp_or_gamma file name
         :return: fname: str
         """
-        sp = self.sp
 
-        if sp >= 1 and sp == int(sp):
-            fname = '{:d}_00'.format(int(sp))
+        if sp_or_gamma >= 1 and sp_or_gamma == int(sp_or_gamma):
+            fname = '{:d}_00'.format(int(sp_or_gamma))
             return fname
-        elif sp >= 1 and sp != int(sp):
-            fname = '{:d}_'.format(int(sp))
-            sp = math.ceil((sp - int(sp)) * 10000)
-            fname = fname + '{:d}'.format(sp)
+        elif sp_or_gamma >= 1 and sp_or_gamma != int(sp_or_gamma):
+            fname = '{:d}_'.format(int(sp_or_gamma))
+            sp_or_gamma = math.ceil((sp_or_gamma - int(sp_or_gamma)) * 10000)
+            fname = fname + '{:d}'.format(int(sp_or_gamma))
             fname = fname[:-2]
             return fname
-        elif sp < 1:
+        elif sp_or_gamma < 1:
             fname = '0_'
-            sp = math.ceil(sp * 10000)
-            fname = fname + '{:d}'.format(sp)
+            sp_or_gamma = math.ceil(sp_or_gamma * 10000)
+            fname = fname + '{:d}'.format(int(sp_or_gamma))
             fname = fname[:-2]
             return fname
         return
+
+    def integrateFx(self, Fx, tvals):
+        """
+        Integrates the array Fx over tvals from a start to an end value
+        Integrates over one period of actuation (2pi)
+        Starts at steady state (3pi), ends at 5pi
+
+        Integrates using the trapezoidal rule
+
+        :param Fx: array of Fx
+        :param tvals: array of tvals
+        :return:
+        """
+
+        dt = self.dt
+        start_time = 3*pi
+        end_time = start_time + 2*pi
+
+        start_index = int(start_time/dt + 1)
+        end_index = int(end_time/dt + 1)
+
+        Fx = Fx[start_index:end_index]
+        tvals = tvals[start_index:end_index]
+
+        Fx_ave = trapz(Fx,tvals)/(tvals[-1] - tvals[0])
+        return tvals, Fx, Fx_ave
 
     def run(self, tvals, saving=True):
         """
@@ -393,8 +419,7 @@ class Clamped(Multilink):
 
         self.Xdot_init(tvals)
 
-        sol, info = odeint(self.dydt, y0, tvals, args=(), full_output=True, \
-                           rtol=1.0e-9, atol=1.0e-9, mxstep=1000)
+        sol, info = odeint(self.dydt, y0, tvals, args=(), full_output=True, rtol=1.0e-9, atol=1.0e-9, mxstep=1000)
         print(info['message'])
 
         # extract solution from the solution array.
@@ -404,6 +429,7 @@ class Clamped(Multilink):
 
         # Calculate force in x direction and new x and y position vectors
         Fx = self.force_x(theta)
+        tvals_int, Fx_int, Fx_ave = self.integrateFx(Fx,tvals)
         x,y, theta = self.xy_vector_prep(x, y, theta)
 
         if saving:
@@ -417,14 +443,19 @@ class Clamped(Multilink):
             dict['x'] = x
             dict['y'] = y
             dict['theta'] = theta
+            dict['xdot'] = self.xdot
+            dict['ydot'] = self.ydot
+            dict['thetadot'] = self.thetadot
             dict['gamma'] = float(self.gamma)
             dict['spring_const'] = float(self.spring_const)
             dict['sp'] = float(self.sp)
             dict['C_distribution'] = self.C_distribution
             dict['Fx'] = Fx
+            dict['Fx_ave'] = Fx_ave
             dict['dt'] = self.dt
             dict['actuation_type'] = self.actuation_type
-            fname = BC + '_' + self.actuation_type + '-sp' + self.spName() + 'N{:d}dt{dt}'.format(N, dt='%.E' % dt)
+            fname = BC + '_' + self.actuation_type + '-sp' + self.sp_gamma_name(self.sp) + 'gm' \
+                    + self.sp_gamma_name(self.gamma) + 'N{:d}dt{dt}'.format(N, dt='%.E' % dt)
             dict['fname'] = fname
             fname = fname + '.mat'
             savemat(fname, dict)
@@ -432,17 +463,53 @@ class Clamped(Multilink):
         elapsedtime = realtime1 - realtime0
         timefmt = time.strftime('%H hours %M minutes and %S seconds', time.gmtime(elapsedtime))
         print('Simulation took {}.'.format(timefmt))
-        return sol, info
+        return sol, info, Fx_ave
 
 if __name__ == "__main__":
     epsilon = 1
     stiffness_type = 'linear'
     actuation_type = 'sin'
-    stiffness_params = [-1,1]
-    sim = Clamped(Nlink=5, gamma=1.2, sp=2, epsilon = epsilon)
+    stiffness_params = [0,1]
+    N = 5
+    dt = pi * 1e-4
+    tvals = arange(0, 6 * pi + dt, dt)
+
+    # First run through
+    sim = Clamped(Nlink=N, gamma=1.2, sp=2, epsilon=epsilon)
     sim.stiffness_distribution(stiffness_type, stiffness_params)
     sim.actuation_function(actuation_type)
-    dt = 1e-3
     sim.dt = dt
-    tvals = arange(0, 6*pi + dt, dt)
-    sim.run(tvals, saving=True)
+    sol, info, Fx_ave_old = sim.run(tvals, saving=True)
+
+    # Ndiff = 1
+    # Nvector = [N]
+    # error = 1000
+    # N = N + Ndiff
+    # Nvector = concatenate((Nvector,[N]))
+    # Fx_vector = [Fx_ave_old]
+    # error_vector = [error]
+
+    # for Ni in range(32,35,1):
+    #     N = Ni
+    #     sim = Clamped(Nlink=N, gamma=1.2, sp=2, epsilon = epsilon)
+    #     sim.stiffness_distribution(stiffness_type, stiffness_params)
+    #     sim.actuation_function(actuation_type)
+    #     sim.dt = dt
+    #     sol, info, Fx_ave_new = sim.run(tvals, saving=False)
+    #     error = abs(Fx_ave_new - Fx_ave_old)/abs(Fx_ave_old)
+    #     Fx_vector = concatenate((Fx_vector,[Fx_ave_new]))
+    #     error_vector = concatenate((error_vector, [error]))
+    #     Fx_ave_old = Fx_ave_new
+    #     N = N + Ndiff
+    #     Nvector = concatenate((Nvector, [N]))
+    #     print('Error: % f' % error)
+    #     print('Average Force: %f' % Fx_ave_old)
+    #     print('Number of Links: %d' % int(N - Ndiff))
+    #
+    # fname = 'clamped_error_check.mat'
+    # dict = {}
+    # dict['Nvector'] = Nvector
+    # dict['error_vector'] = error_vector
+    # dict['Fx_vector'] = Fx_vector
+    # savemat(fname, dict)
+
