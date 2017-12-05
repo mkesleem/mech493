@@ -1,6 +1,7 @@
 from numpy import sin, cos, linspace, ones, zeros, arange, exp, sum
 from numpy import append, diff, pi
 from numpy import concatenate
+from numpy import trapz
 from scipy.io import savemat
 from scipy.sparse import lil_matrix
 from scipy.sparse.linalg import spsolve
@@ -207,7 +208,7 @@ class Hinged(Multilink):
         N = self.N
         spring_const = self.spring_const
 
-        f = spring_const*self.C_distribution[1:]* diff(theta)
+        f = spring_const * self.C_distribution[1:] * diff(theta)
         f = append(self.C_distribution[0]*theta[0], f)
         f = append(f, zeros(2*N))
         f[2*N] = -self.f_ydot1(t)
@@ -288,9 +289,9 @@ class Hinged(Multilink):
             raise ValueError(
                 'array theta should be of length {}, while the input is of length {}'.format(self.N, thetaLength))
 
-        Fx_coef_xdot, Fx_coef_y_dot, Fx_coef_theta_dot = self.viscous_force_x_coef(theta)
+        Fx_coef_x_dot, Fx_coef_y_dot, Fx_coef_theta_dot = self.viscous_force_x_coef(theta)
         Fx1 = Fx_coef_y_dot[:, 0] * self.f_ydot1(tvals) + Fx_coef_theta_dot[:, 0] * self.thetadot[:, 0]
-        Fx = Fx_coef_xdot[:, 1:] * self.xdot[:, :-1] + Fx_coef_y_dot[:, 1:] * self.ydot[:, :-1] \
+        Fx = Fx_coef_x_dot[:, 1:] * self.xdot[:, :-1] + Fx_coef_y_dot[:, 1:] * self.ydot[:, :-1] \
              + Fx_coef_theta_dot[:,1:] * self.thetadot[:,1:]
         return sum(Fx, axis=1) + Fx1
 
@@ -330,30 +331,53 @@ class Hinged(Multilink):
         y = concatenate((y1.T,y), axis = 1)
         return x, y
 
-    def spName(self):
+    def sp_gamma_name(self,sp_or_gamma):
         """
-        Creates sp file name
+        Creates sp_or_gamma file name
         :return: fname: str
         """
-
-        sp = self.sp
-
-        if sp >= 1 and sp == int(sp):
-            fname = '{:d}_00'.format(int(sp))
+        if sp_or_gamma >= 1 and sp_or_gamma == int(sp_or_gamma):
+            fname = '{:d}_00'.format(int(sp_or_gamma))
             return fname
-        elif sp >= 1 and sp != int(sp):
-            fname = '{:d}_'.format(int(sp))
-            sp = math.ceil((sp - int(sp)) * 10000)
-            fname = fname + '{:d}'.format(sp)
+        elif sp_or_gamma >= 1 and sp_or_gamma != int(sp_or_gamma):
+            fname = '{:d}_'.format(int(sp_or_gamma))
+            sp_or_gamma = math.ceil((sp_or_gamma - int(sp_or_gamma)) * 10000)
+            fname = fname + '{:d}'.format(int(sp_or_gamma))
             fname = fname[:-2]
             return fname
-        elif sp < 1:
+        elif sp_or_gamma < 1:
             fname = '0_'
-            sp = math.ceil(sp * 10000)
-            fname = fname + '{:d}'.format(sp)
+            sp_or_gamma = math.ceil(sp_or_gamma * 10000)
+            fname = fname + '{:d}'.format(int(sp_or_gamma))
             fname = fname[:-2]
             return fname
         return
+
+    def integrateFx(self, Fx, tvals):
+        """
+        Integrates the array Fx over tvals from a start to an end value
+        Integrates over one period of actuation (2pi)
+        Starts at steady state (3pi), ends at 5pi
+
+        Integrates using the trapezoidal rule
+
+        :param Fx: array of Fx
+        :param tvals: array of tvals
+        :return:
+        """
+
+        dt = self.dt
+        start_time = 3*pi
+        end_time = start_time + 2*pi
+
+        start_index = int(start_time/dt + 1)
+        end_index = int(end_time/dt + 1)
+
+        Fx = Fx[start_index:end_index]
+        tvals = tvals[start_index:end_index]
+
+        Fx_ave = trapz(Fx,tvals)/(tvals[-1] - tvals[0])
+        return tvals, Fx, Fx_ave
 
     def run(self, tvals, saving=True):
         """
@@ -396,8 +420,7 @@ class Hinged(Multilink):
 
         self.Xdot_init(tvals)
 
-        sol, info = odeint(self.dydt, y0, tvals, args=(), full_output=True, \
-                           rtol=1.0e-9, atol=1.0e-9, mxstep=1000)
+        sol, info = odeint(self.dydt, y0, tvals, args=(), full_output=True,rtol=1.0e-9, atol=1.0e-9, mxstep=1000)
         print(info['message'])
 
         # extract solution from the solution array.
@@ -407,6 +430,7 @@ class Hinged(Multilink):
 
         # Calculate force in x direction and new x and y position vectors
         Fx = self.force_x(theta)
+        tvals_int, Fx_int, Fx_ave = self.integrateFx(Fx,tvals)
         x,y = self.xy_vector_prep(x, y)
 
         # Save data
@@ -418,21 +442,26 @@ class Hinged(Multilink):
             dict['N'] = float(N)
             dict['msg'] = info['message']
             dict['t'] = tvals
+            dict['t_int'] = tvals_int
             dict['x'] = x
             dict['y'] = y
             dict['theta'] = theta
+            dict['xdot'] = self.xdot
+            dict['ydot'] = self.ydot
+            dict['thetadot'] = self.thetadot
             dict['gamma'] = float(self.gamma)
             dict['spring_const'] = float(self.spring_const)
             dict['sp'] = float(self.sp)
             dict['C_distribution'] = self.C_distribution
-            dict['xdot'] = self.xdot[:,:-1]
-            dict['ydot'] = self.ydot[:,:-1]
-            dict['thetadot'] = self.thetadot
             dict['Fx'] = Fx
+            dict['Fx_int'] = Fx_int
+            dict['Fx_ave'] = Fx_ave
             dict['dt'] = self.dt
             dict['actuation_type'] = self.actuation_type
             dict['C1'] = self.C_distribution[0]
-            fname = BC + '_' + self.actuation_type + '-sp' + self.spName() + 'N{:d}dt{dt}'.format(N, dt='%.E' % dt) + 'C{:d}'.format(int(self.C_distribution[0]))
+            fname = BC + '_' + self.actuation_type + '-sp' + self.sp_gamma_name(self.sp) + 'gm' \
+                    + self.sp_gamma_name(self.gamma) + 'N{:d}dt{dt}'.format(N, dt='%.E' % dt) \
+                    + 'C{:d}'.format(int(self.C_distribution[0]))
             dict['fname'] = fname
             fname = fname + '.mat'
             savemat(fname, dict)
@@ -443,42 +472,16 @@ class Hinged(Multilink):
         return sol, info
 
 if __name__ == "__main__":
-    """
-    Class for the hinged case
-    
-    Attributes
-    ----------
-    epsilon : float
-        Dimensionless oscillation amplitude
-    f_ydot1: anonymous function
-        y velocity of first filament
-    f_y1: anonymous function
-        y position of first filament
-    stiffness_type: string
-        information about stiffness distribution
-    stiffness_params:
-        parameters to create stiffness distirbution
-    dt: float
-        time step
-    tvals: numpy.ndarray
-        time range to integrate over
-    sim: class
-        Inputs: Nlink, gamma, sp, epsilon, f_y1, f_ydot1
-    
-    1)  Generate sim
-    2)  Create stiffnes distribution
-    3)  Run sim            
-    """
     epsilon = 1
     actuation_type = 'cos'
     stiffness_type = 'linear'
-    stiffness_params = [-1,1]
-    C1 = 0
+    stiffness_params = [0,1]
+    C1 = 10000
     sim = Hinged(Nlink=5, gamma=1.2, sp=2, epsilon = epsilon)
     sim.stiffness_distribution(stiffness_type, stiffness_params)
     sim.C_distribution[0] = C1
     sim.actuation_function(actuation_type)
-    dt = 1e-3
+    dt = pi*1e-5
     sim.dt = dt
     tvals = arange(0, 6*pi + dt, dt)
     sim.run(tvals, saving=True)
